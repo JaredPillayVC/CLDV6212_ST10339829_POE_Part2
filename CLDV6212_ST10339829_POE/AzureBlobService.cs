@@ -1,4 +1,8 @@
 ﻿using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using Microsoft.AspNetCore.Http;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace CLDV6212_ST10339829_POE
 {
@@ -7,30 +11,42 @@ namespace CLDV6212_ST10339829_POE
         private readonly BlobServiceClient _blobServiceClient;
         private readonly BlobContainerClient _blobContainerClient;
 
-
-        public AzureBlobService(string connectionString) 
-        { 
+        public AzureBlobService(string connectionString)
+        {
             _blobServiceClient = new BlobServiceClient(connectionString);
-            _blobContainerClient = _blobServiceClient.GetBlobContainerClient("Images");
-            _blobContainerClient.CreateIfNotExists();
+            _blobContainerClient = _blobServiceClient.GetBlobContainerClient("images");
+
+            // Create the container if it doesn't exist
+            _blobContainerClient.CreateIfNotExists(PublicAccessType.Blob);
         }
 
-        public async Task uploadImageAsync(IFormFile file) 
+        // Upload the image asynchronously
+        public async Task UploadImageAsync(IFormFile file)
         {
             var imageBlobClient = _blobContainerClient.GetBlobClient(file.FileName);
+
+            // Open a stream for the file and upload it
             using var fileStream = file.OpenReadStream();
-            await imageBlobClient.UploadAsync(fileStream, true);
-        }
-        public async Task<List<string>> FilesAsync() 
-        { 
-            var files = new List<string>();
-            await foreach (var item in _blobContainerClient.GetBlobsAsync()) 
-            { 
-                files.Add(item.Name);
-            }
-            return files;
+            var blobHttpHeaders = new BlobHttpHeaders
+            {
+                ContentType = file.ContentType // Set the content type
+            };
+
+            await imageBlobClient.UploadAsync(fileStream, new BlobUploadOptions { HttpHeaders = blobHttpHeaders });
         }
 
-    
+        // List all files in the container asynchronously
+        public async Task<List<string>> GetFilesAsync()
+        {
+            var files = new List<string>();
+
+            // List all blobs in the container
+            await foreach (var blobItem in _blobContainerClient.GetBlobsAsync())
+            {
+                files.Add(blobItem.Name);
+            }
+
+            return files;
+        }
     }
 }
