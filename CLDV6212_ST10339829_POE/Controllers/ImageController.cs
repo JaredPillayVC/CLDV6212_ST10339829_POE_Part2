@@ -1,24 +1,46 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using System.Net.Http;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using System.IO;
 
 namespace CLDV6212_ST10339829_POE.Controllers
 {
     public class ImageController : Controller
     {
-        private readonly string _azureFunctionBaseUrl = "https://st10339829-azurefunctionsapplication.azurewebsites.net/";
+        private readonly string _azureFunctionBaseUrl;
+        private readonly string _uploadImageKey;
+        private readonly string _getImageKey;
         private readonly HttpClient _httpClient;
+        private readonly ILogger<ImageController> _logger;
 
-        public ImageController(HttpClient httpClient)
+        public ImageController(HttpClient httpClient, IConfiguration configuration, ILogger<ImageController> logger)
         {
             _httpClient = httpClient;
+            _azureFunctionBaseUrl = configuration["AzureSettings:BaseURL"];
+            _uploadImageKey = configuration["AzureSettings:UploadImageKey"];
+            _getImageKey = configuration["AzureSettings:GetImageURLKey"];
+            _logger = logger;
         }
 
         public async Task<IActionResult> Index()
         {
-            var files = await GetImageUrlsAsync();
-            ViewBag.ImageUrls = files;
-            return View(files);
+            try
+            {
+                var files = await GetImageUrlsAsync();
+                ViewBag.ImageUrls = files;
+                return View(files);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Failed to load images: {ex.Message}");
+                TempData["Error"] = "Failed to load images. Please try again later.";
+                return View(new List<string>());
+            }
         }
 
         [HttpPost]
@@ -26,9 +48,17 @@ namespace CLDV6212_ST10339829_POE.Controllers
         {
             if (formFile != null && formFile.Length > 0)
             {
-                var formFileName = Path.GetFileName(formFile.FileName);
-                var url = await UploadImageToFunctionAsync(formFile, formFileName);
-                TempData["Message"] = "Your image has been successfully uploaded!";
+                try
+                {
+                    var formFileName = Path.GetFileName(formFile.FileName);
+                    var url = await UploadImageToFunctionAsync(formFile, formFileName);
+                    TempData["Message"] = "Your image has been successfully uploaded!";
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"Failed to upload image: {ex.Message}");
+                    TempData["Error"] = "Failed to upload image. Please try again.";
+                }
             }
             else
             {
@@ -40,7 +70,8 @@ namespace CLDV6212_ST10339829_POE.Controllers
         // Upload image to Azure Function via HTTP request
         public async Task<string> UploadImageToFunctionAsync(IFormFile image, string imageName)
         {
-            var uploadUrl = $"{_azureFunctionBaseUrl}UploadImage"; // Ensure absolute URL
+            var uploadUrl = $"{_azureFunctionBaseUrl}upload-image?code={_uploadImageKey}";
+            _logger.LogInformation($"Uploading image to: {uploadUrl}");
 
             using (var stream = image.OpenReadStream())
             {
@@ -52,6 +83,7 @@ namespace CLDV6212_ST10339829_POE.Controllers
                 response.EnsureSuccessStatusCode();
 
                 var result = await response.Content.ReadAsStringAsync();
+                _logger.LogInformation($"Image upload response: {result}");
                 return result;
             }
         }
@@ -59,14 +91,16 @@ namespace CLDV6212_ST10339829_POE.Controllers
         // Retrieve image URLs from Azure Function via HTTP request
         public async Task<List<string>> GetImageUrlsAsync()
         {
-            var getUrl = $"{_azureFunctionBaseUrl}get-image-urls"; // Ensure absolute URL
+            var getUrl = $"{_azureFunctionBaseUrl}get-image-urls?code={_getImageKey}";
+            _logger.LogInformation($"Fetching URLs from: {getUrl}");
 
             var response = await _httpClient.GetAsync(getUrl);
             response.EnsureSuccessStatusCode();
 
             var jsonResult = await response.Content.ReadAsStringAsync();
-            var imageUrls = JsonSerializer.Deserialize<List<string>>(jsonResult);
-            return imageUrls ?? new List<string>();
+            _logger.LogInformation($"Fetched image URLs: {jsonResult}");
+
+            return JsonSerializer.Deserialize<List<string>>(jsonResult) ?? new List<string>();
         }
     }
 }
