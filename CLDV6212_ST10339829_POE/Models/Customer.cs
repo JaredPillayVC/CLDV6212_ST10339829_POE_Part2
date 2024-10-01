@@ -1,5 +1,4 @@
 ﻿using Microsoft.Azure.Cosmos.Table;
-using System;
 using System.ComponentModel.DataAnnotations;
 
 namespace CLDV6212_ST10339829_POE.Models
@@ -16,7 +15,7 @@ namespace CLDV6212_ST10339829_POE.Models
 
         public Customer()
         {
-            PartitionKey = "Customer"; 
+            PartitionKey = "Customer";
         }
 
         public void SetRowKey()
