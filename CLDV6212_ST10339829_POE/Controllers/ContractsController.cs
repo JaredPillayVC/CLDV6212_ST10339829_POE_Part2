@@ -1,29 +1,61 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
+using System.Net.Http;
+using System.Threading.Tasks;
+using System.IO;
+using Microsoft.Extensions.Configuration;
 
 namespace CLDV6212_ST10339829_POE.Controllers
 {
     public class ContractsController : Controller
     {
-        private readonly AzureFileService _azureFileService;
+        private readonly HttpClient _httpClient;
+        private readonly string _azureFunctionBaseUrl;
+        private readonly string _uploadContractFunctionKey;
 
-        public ContractsController()
+        public ContractsController(HttpClient httpClient, IConfiguration configuration)
         {
-            string connectionString = "DefaultEndpointsProtocol=https;AccountName=st10339829;AccountKey=b1RzjUhuhot2MIrD+6YOgiT2AMeWOX5b5ILd6ROUzt30pD8LVb7GnwPAGKeuP3nPyRX8lGmlwVr2+AStHgokZw==;EndpointSuffix=core.windows.net";
-            _azureFileService = new AzureFileService(connectionString);
+            _httpClient = httpClient;
+            _azureFunctionBaseUrl = configuration["AzureSettings:BaseURL"];
+            _uploadContractFunctionKey = configuration["AzureSettings:UploadContractKey"];
         }
+
         public async Task<IActionResult> Index()
         {
-            var files = await _azureFileService.FilesAsync();
-            return View(files);
+            return View();
         }
+
         [HttpPost]
         public async Task<IActionResult> Upload(IFormFile formFile)
         {
-            if (formFile != null)
+            if (formFile != null && formFile.Length > 0)
             {
-                await _azureFileService.UploadAsync(formFile);
+                var result = await UploadContractToFunctionAsync(formFile);
+                if (result.IsSuccessStatusCode)
+                {
+                    TempData["Message"] = "Contract uploaded successfully!";
+                }
+                else
+                {
+                    TempData["Error"] = "Failed to upload contract.";
+                }
+            }
+            else
+            {
+                TempData["Error"] = "Please select a file to upload.";
             }
             return RedirectToAction(nameof(Index));
+        }
+
+        private async Task<HttpResponseMessage> UploadContractToFunctionAsync(IFormFile formFile)
+        {
+            var requestUri = $"{_azureFunctionBaseUrl}UploadContract?code={_uploadContractFunctionKey}";
+            using var content = new MultipartFormDataContent();
+            using var fileStream = formFile.OpenReadStream();
+            using var fileContent = new StreamContent(fileStream);
+            content.Add(fileContent, "file", Path.GetFileName(formFile.FileName));
+
+            return await _httpClient.PostAsync(requestUri, content);
         }
     }
 }
